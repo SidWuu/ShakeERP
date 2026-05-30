@@ -1,0 +1,9 @@
+# HTTPS 配置（通过 --spring.profiles.active=https 启用）
+# 启用后同时监听 HTTP 8080 和 HTTPS 8443
+server:
+  port: 8443
+  ssl:
+    key-store: classpath:keystore.p12
+    key-store-password: ${SSL_KEY_STORE_PASSWORD:changeit}
+    key-store-type: PKCS12
+    key-alias: shake-erp
