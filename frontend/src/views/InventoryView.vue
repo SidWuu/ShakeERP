@@ -25,7 +25,7 @@ const form = reactive({
 // 入库表单
 const stockInForm = reactive({
   productCode: "",
-  quantity: 1,
+  quantity: null,
   remark: "",
   customerCode: "",
   images: []
@@ -34,7 +34,7 @@ const stockInForm = reactive({
 // 出库表单
 const stockOutForm = reactive({
   productCode: "",
-  quantity: 1,
+  quantity: null,
   remark: "",
   customerCode: ""
 });
@@ -78,8 +78,8 @@ function editRow(row) {
 function switchToStockIn() {
   panelMode.value = "stockIn";
   showScanner.value = false;
-  stockInForm.productCode = store.products[0]?.code || "";
-  stockInForm.quantity = 1;
+  stockInForm.productCode = "";
+  stockInForm.quantity = null;
   stockInForm.remark = "";
   stockInForm.customerCode = "";
   stockInForm.images = [];
@@ -88,8 +88,8 @@ function switchToStockIn() {
 function switchToStockOut() {
   panelMode.value = "stockOut";
   showScanner.value = false;
-  stockOutForm.productCode = store.products[0]?.code || "";
-  stockOutForm.quantity = 1;
+  stockOutForm.productCode = "";
+  stockOutForm.quantity = null;
   stockOutForm.remark = "";
   stockOutForm.customerCode = "";
 }
@@ -190,7 +190,8 @@ async function submitStockIn() {
       images: stockInForm.images.length > 0 ? stockInForm.images : null
     });
     store.message = `入库完成：${updated.productName} 当前库存 ${updated.quantity}${updated.unit}`;
-    stockInForm.quantity = 1;
+    stockInForm.productCode = "";
+    stockInForm.quantity = null;
     stockInForm.remark = "";
     stockInForm.customerCode = "";
     stockInForm.images = [];
@@ -214,7 +215,8 @@ async function submitStockOut() {
       customerCode: stockOutForm.customerCode || null
     });
     store.message = `出库完成：${updated.productName} 当前库存 ${updated.quantity}${updated.unit}`;
-    stockOutForm.quantity = 1;
+    stockOutForm.productCode = "";
+    stockOutForm.quantity = null;
     stockOutForm.remark = "";
     stockOutForm.customerCode = "";
     await store.refreshInventory(filters);

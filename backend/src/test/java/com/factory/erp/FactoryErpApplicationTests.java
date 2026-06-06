@@ -8,6 +8,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.factory.erp.auth.AuthService;
+import com.factory.erp.customer.CustomerService;
+import com.factory.erp.inventory.InventoryService;
+import com.factory.erp.product.ProductService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -16,21 +21,52 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 @SpringBootTest
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 @TestPropertySource(properties = {
-        "spring.datasource.url=jdbc:sqlite:file:factory-erp-test?mode=memory&cache=shared"
+        "spring.datasource.url=jdbc:sqlite:file:factory-erp-test?mode=memory&cache=shared",
+        "spring.sql.init.mode=always",
+        "spring.sql.init.schema-locations=classpath:db/init.sql",
+        "spring.sql.init.data-locations=classpath:db/test-demo-data.sql"
 })
 class FactoryErpApplicationTests {
+
+    private static final String AUTH_HEADER = "Bearer YWRtaW46MQ==";
 
     @Autowired
     private MockMvc mockMvc;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private AuthService authService;
+
+    @Autowired
+    private ProductService productService;
+
+    @Autowired
+    private CustomerService customerService;
+
+    @Autowired
+    private InventoryService inventoryService;
+
+    @BeforeEach
+    void reloadServicesFromInitializedDatabase() {
+        productService.reloadFromDatabase();
+        customerService.reloadFromDatabase();
+        inventoryService.reloadFromDatabase();
+        authService.reloadFromDatabase();
+    }
+
+    private ResultActions performAuthenticated(MockHttpServletRequestBuilder request) throws Exception {
+        return mockMvc.perform(request.header("Authorization", AUTH_HEADER));
+    }
 
     @Test
     void healthReturnsServiceStatus() throws Exception {
@@ -43,9 +79,16 @@ class FactoryErpApplicationTests {
 
     @Test
     void loginAcceptsKnownDemoUser() throws Exception {
+        String storedHash = jdbcTemplate.queryForObject(
+                "select password_hash from users where username = ?",
+                String.class,
+                "admin"
+        );
+        assertThat(storedHash).isEqualTo("e82c6e48905a96d5596fac29c59bd5a90c6092dfe73f4cfdde257165ae9cd40c");
+
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"username\":\"admin\",\"password\":\"admin123\"}"))
+                        .content("{\"username\":\"admin\",\"password\":\"0192023a7bbd73250516f069df18b500\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.username").value("admin"))
@@ -54,7 +97,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void productsReturnsSeedProducts() throws Exception {
-        mockMvc.perform(get("/api/products"))
+        performAuthenticated(get("/api/products"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data[0].code").value("P-1001"))
@@ -63,7 +106,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void productsCanBeQueriedByDateCodeAndName() throws Exception {
-        mockMvc.perform(get("/api/products")
+        performAuthenticated(get("/api/products")
                         .param("startDate", "2000-01-01")
                         .param("endDate", "2100-01-01")
                         .param("code", "1001")
@@ -76,7 +119,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void customersCanBeCreatedQueriedAndDeletedWithContactChannels() throws Exception {
-        mockMvc.perform(post("/api/customers")
+        performAuthenticated(post("/api/customers")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -95,7 +138,7 @@ class FactoryErpApplicationTests {
                 .andExpect(jsonPath("$.data.qq").value("123456789"))
                 .andExpect(jsonPath("$.data.wechat").value("zhangsan-wx"));
 
-        mockMvc.perform(put("/api/customers/C-1001")
+        performAuthenticated(put("/api/customers/C-1001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -114,7 +157,7 @@ class FactoryErpApplicationTests {
                 .andExpect(jsonPath("$.data.name").value("上海测试客户更新"))
                 .andExpect(jsonPath("$.data.contactPerson").value("李四"));
 
-        mockMvc.perform(get("/api/customers")
+        performAuthenticated(get("/api/customers")
                         .param("startDate", "2000-01-01")
                         .param("endDate", "2100-01-01")
                         .param("code", "1001")
@@ -125,19 +168,19 @@ class FactoryErpApplicationTests {
                 .andExpect(jsonPath("$.data[0].contactPerson").value("李四"))
                 .andExpect(jsonPath("$.data[0].phone").value("13900000000"));
 
-        mockMvc.perform(delete("/api/customers/C-1001"))
+        performAuthenticated(delete("/api/customers/C-1001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.code").value("C-1001"));
 
-        mockMvc.perform(get("/api/customers").param("code", "C-1001"))
+        performAuthenticated(get("/api/customers").param("code", "C-1001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(0));
     }
 
     @Test
     void inventorySummaryReturnsCurrentStock() throws Exception {
-        mockMvc.perform(get("/api/inventory/summary"))
+        performAuthenticated(get("/api/inventory/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data[0].code").value("I-1001"))
@@ -147,7 +190,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void inventoryCanBeQueriedByDateCodeAndName() throws Exception {
-        mockMvc.perform(get("/api/inventory/summary")
+        performAuthenticated(get("/api/inventory/summary")
                         .param("startDate", "2000-01-01")
                         .param("endDate", "2100-01-01")
                         .param("code", "1002")
@@ -160,7 +203,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void createsProductAndMakesItSearchableByBarcode() throws Exception {
-        mockMvc.perform(post("/api/products")
+        performAuthenticated(post("/api/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -176,7 +219,7 @@ class FactoryErpApplicationTests {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.code").value("P-1004"));
 
-        mockMvc.perform(put("/api/products/P-1004")
+        performAuthenticated(put("/api/products/P-1004")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -193,13 +236,13 @@ class FactoryErpApplicationTests {
                 .andExpect(jsonPath("$.data.name").value("测试包装箱更新"))
                 .andExpect(jsonPath("$.data.safetyStock").value(8));
 
-        mockMvc.perform(get("/api/scanner/products/6900000020015"))
+        performAuthenticated(get("/api/scanner/products/6900000020015"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.name").value("测试包装箱更新"))
                 .andExpect(jsonPath("$.data.quantity").value(18));
 
-        mockMvc.perform(get("/api/stock-movements").param("code", "P-1004"))
+        performAuthenticated(get("/api/stock-movements").param("code", "P-1004"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].type").value("新增"))
                 .andExpect(jsonPath("$.data[0].afterQuantity").value(11))
@@ -209,7 +252,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void inventoryCanBeSavedAndUpdatedByGeneratedInventoryCode() throws Exception {
-        mockMvc.perform(post("/api/inventory")
+        performAuthenticated(post("/api/inventory")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -224,7 +267,7 @@ class FactoryErpApplicationTests {
                 .andExpect(jsonPath("$.data.code").value("I-1001"))
                 .andExpect(jsonPath("$.data.quantity").value(135));
 
-        mockMvc.perform(put("/api/inventory/I-1001")
+        performAuthenticated(put("/api/inventory/I-1001")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -239,7 +282,7 @@ class FactoryErpApplicationTests {
                 .andExpect(jsonPath("$.data.code").value("I-1001"))
                 .andExpect(jsonPath("$.data.quantity").value(88));
 
-        mockMvc.perform(get("/api/stock-movements").param("code", "1001"))
+        performAuthenticated(get("/api/stock-movements").param("code", "1001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].type").value("修改"))
                 .andExpect(jsonPath("$.data[1].type").value("修改"))
@@ -249,7 +292,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void stockInIncreasesInventoryQuantity() throws Exception {
-        mockMvc.perform(post("/api/stock-in")
+        performAuthenticated(post("/api/stock-in")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -267,7 +310,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void inventoryChangesAndLedgerArePersistedToDatabase() throws Exception {
-        mockMvc.perform(post("/api/stock-in")
+        performAuthenticated(post("/api/stock-in")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -298,7 +341,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void stockLedgerRecordsBeforeAndAfterQuantityAndCanBeQueried() throws Exception {
-        mockMvc.perform(post("/api/stock-in")
+        performAuthenticated(post("/api/stock-in")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -310,7 +353,7 @@ class FactoryErpApplicationTests {
                                 """))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(get("/api/stock-movements")
+        performAuthenticated(get("/api/stock-movements")
                         .param("startDate", "2000-01-01")
                         .param("endDate", "2100-01-01")
                         .param("code", "1001")
@@ -326,7 +369,7 @@ class FactoryErpApplicationTests {
 
     @Test
     void stockOutRejectsInsufficientInventory() throws Exception {
-        mockMvc.perform(post("/api/stock-out")
+        performAuthenticated(post("/api/stock-out")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -343,14 +386,14 @@ class FactoryErpApplicationTests {
 
     @Test
     void deletesInventoryByClearingQuantityAndWritingLedger() throws Exception {
-        mockMvc.perform(delete("/api/inventory/P-1001")
+        performAuthenticated(delete("/api/inventory/P-1001")
                         .param("operator", "系统管理员"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.productCode").value("P-1001"))
                 .andExpect(jsonPath("$.data.quantity").value(0));
 
-        mockMvc.perform(get("/api/stock-movements")
+        performAuthenticated(get("/api/stock-movements")
                         .param("code", "1001")
                         .param("name", "螺丝"))
                 .andExpect(status().isOk())
@@ -361,16 +404,16 @@ class FactoryErpApplicationTests {
 
     @Test
     void deletesProductAndItsInventoryRow() throws Exception {
-        mockMvc.perform(delete("/api/products/P-1002"))
+        performAuthenticated(delete("/api/products/P-1002"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.code").value("P-1002"));
 
-        mockMvc.perform(get("/api/products").param("code", "P-1002"))
+        performAuthenticated(get("/api/products").param("code", "P-1002"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(0));
 
-        mockMvc.perform(get("/api/inventory/summary").param("code", "P-1002"))
+        performAuthenticated(get("/api/inventory/summary").param("code", "P-1002"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(0));
     }

@@ -42,27 +42,6 @@ public class AdminController {
 
     public AdminController(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
-        initDictSchema();
-    }
-
-    private void initDictSchema() {
-        try {
-            jdbcTemplate.execute("""
-                create table if not exists dict_categories (
-                    id integer primary key autoincrement,
-                    name text not null unique
-                )
-            """);
-            jdbcTemplate.execute("""
-                create table if not exists dict_items (
-                    id integer primary key autoincrement,
-                    category text not null,
-                    label text not null,
-                    value text not null
-                )
-            """);
-        } catch (Exception ignored) {
-        }
     }
 
     /** 创建数据库备份 */

@@ -4,7 +4,6 @@ import com.factory.erp.common.BaseService;
 import com.factory.erp.common.exception.NotFoundException;
 import com.factory.erp.customer.CustomerController.CustomerRequest;
 import com.factory.erp.customer.CustomerController.CustomerSummary;
-import jakarta.annotation.PostConstruct;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,9 +23,7 @@ public class CustomerService extends BaseService {
         super(jdbcTemplate);
     }
 
-    @PostConstruct
-    void init() {
-        createSchema();
+    public synchronized void reloadFromDatabase() {
         loadFromDatabase();
     }
 
@@ -87,39 +84,21 @@ public class CustomerService extends BaseService {
         return customer.toSummary();
     }
 
-    private void createSchema() {
-        jdbcTemplate.execute("""
-                create table if not exists customers (
-                    code text primary key,
-                    name text not null,
-                    contact_person text,
-                    phone text not null,
-                    qq text,
-                    wechat text,
-                    address text,
-                    remark text,
-                    created_at text not null
-                )
-                """);
-    }
-
     private void loadFromDatabase() {
         customers.clear();
         jdbcTemplate.query("select code, name, contact_person, phone, qq, wechat, address, remark, created_at from customers order by code", (java.sql.ResultSet rs) -> {
-            while (rs.next()) {
-                CustomerRecord customer = new CustomerRecord(
-                        rs.getString("code"),
-                        rs.getString("name"),
-                        rs.getString("contact_person"),
-                        rs.getString("phone"),
-                        rs.getString("qq"),
-                        rs.getString("wechat"),
-                        rs.getString("address"),
-                        rs.getString("remark"),
-                        rs.getString("created_at")
-                );
-                customers.put(customer.code(), customer);
-            }
+            CustomerRecord customer = new CustomerRecord(
+                    rs.getString("code"),
+                    rs.getString("name"),
+                    rs.getString("contact_person"),
+                    rs.getString("phone"),
+                    rs.getString("qq"),
+                    rs.getString("wechat"),
+                    rs.getString("address"),
+                    rs.getString("remark"),
+                    rs.getString("created_at")
+            );
+            customers.put(customer.code(), customer);
         });
     }
 

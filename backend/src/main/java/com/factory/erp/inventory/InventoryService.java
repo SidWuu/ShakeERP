@@ -7,7 +7,6 @@ import com.factory.erp.inventory.InventoryController.InventoryRequest;
 import com.factory.erp.inventory.InventoryController.InventorySummary;
 import com.factory.erp.product.ProductService;
 import com.factory.erp.product.ProductService.ProductRecord;
-import jakarta.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,11 +33,8 @@ public class InventoryService extends BaseService {
         this.productService = productService;
     }
 
-    @PostConstruct
-    void init() {
-        createSchema();
+    public synchronized void reloadFromDatabase() {
         loadFromDatabase();
-        seedIfNeeded();
     }
 
     public synchronized List<InventorySummary> summary(String startDate, String endDate, String code, String name) {
@@ -154,29 +150,6 @@ public class InventoryService extends BaseService {
         return stockByProductCode.getOrDefault(productCode, 0);
     }
 
-    // --- seed data ---
-
-    private void seedIfNeeded() {
-        if (!productService.isEmpty()) {
-            return;
-        }
-        productService.addSeedProduct("P-1001", "6900000000017", "不锈钢螺丝 M6", "五金件", "盒", 20);
-        productService.addSeedProduct("P-1002", "6900000000024", "尼龙扎带 200mm", "辅料", "包", 10);
-        productService.addSeedProduct("P-1003", "6900000000031", "铝合金外壳 A 型", "半成品", "件", 12);
-        addSeedInventory("P-1001", 120);
-        addSeedInventory("P-1002", 64);
-        addSeedInventory("P-1003", 18);
-    }
-
-    private void addSeedInventory(String productCode, int quantity) {
-        String inventoryCode = nextInventoryCode();
-        String changedAt = now();
-        stockByProductCode.put(productCode, quantity);
-        inventoryCodeByProductCode.put(productCode, inventoryCode);
-        inventoryChangedAtByProductCode.put(productCode, changedAt);
-        upsertInventory(productCode, inventoryCode, quantity, changedAt);
-    }
-
     // --- private helpers ---
 
     private InventorySummary toSummary(String productCode, String productName, String unit, int safetyStock) {
@@ -202,37 +175,6 @@ public class InventoryService extends BaseService {
         return "I-%04d".formatted(max + 1);
     }
 
-    private void createSchema() {
-        jdbcTemplate.execute("""
-                create table if not exists inventory (
-                    product_code text primary key,
-                    code text not null unique,
-                    quantity integer not null,
-                    last_changed_at text not null
-                )
-                """);
-        jdbcTemplate.execute("""
-                create table if not exists stock_movements (
-                    id integer primary key autoincrement,
-                    type text not null,
-                    product_code text not null,
-                    product_name text not null,
-                    quantity integer not null,
-                    before_quantity integer not null,
-                    after_quantity integer not null,
-                    operator text,
-                    remark text,
-                    customer_code text,
-                    created_at text not null
-                )
-                """);
-        // 兼容旧表
-        try {
-            jdbcTemplate.execute("alter table stock_movements add column customer_code text");
-        } catch (Exception ignored) {
-        }
-    }
-
     private void loadFromDatabase() {
         stockByProductCode.clear();
         inventoryCodeByProductCode.clear();
@@ -240,28 +182,24 @@ public class InventoryService extends BaseService {
         movements.clear();
 
         jdbcTemplate.query("select product_code, code, quantity, last_changed_at from inventory order by code", (java.sql.ResultSet rs) -> {
-            while (rs.next()) {
-                String productCode = rs.getString("product_code");
-                inventoryCodeByProductCode.put(productCode, rs.getString("code"));
-                stockByProductCode.put(productCode, rs.getInt("quantity"));
-                inventoryChangedAtByProductCode.put(productCode, rs.getString("last_changed_at"));
-            }
+            String productCode = rs.getString("product_code");
+            inventoryCodeByProductCode.put(productCode, rs.getString("code"));
+            stockByProductCode.put(productCode, rs.getInt("quantity"));
+            inventoryChangedAtByProductCode.put(productCode, rs.getString("last_changed_at"));
         });
         jdbcTemplate.query("select type, product_code, product_name, quantity, before_quantity, after_quantity, operator, remark, customer_code, created_at from stock_movements order by id", (java.sql.ResultSet rs) -> {
-            while (rs.next()) {
-                movements.add(new StockMovement(
-                        rs.getString("type"),
-                        rs.getString("product_code"),
-                        rs.getString("product_name"),
-                        rs.getInt("quantity"),
-                        rs.getInt("before_quantity"),
-                        rs.getInt("after_quantity"),
-                        rs.getString("operator"),
-                        rs.getString("remark"),
-                        rs.getString("customer_code"),
-                        rs.getString("created_at")
-                ));
-            }
+            movements.add(new StockMovement(
+                    rs.getString("type"),
+                    rs.getString("product_code"),
+                    rs.getString("product_name"),
+                    rs.getInt("quantity"),
+                    rs.getInt("before_quantity"),
+                    rs.getInt("after_quantity"),
+                    rs.getString("operator"),
+                    rs.getString("remark"),
+                    rs.getString("customer_code"),
+                    rs.getString("created_at")
+            ));
         });
     }
 

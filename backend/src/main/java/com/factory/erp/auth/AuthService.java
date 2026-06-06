@@ -2,7 +2,6 @@ package com.factory.erp.auth;
 
 import com.factory.erp.common.BaseService;
 import com.factory.erp.common.exception.BusinessException;
-import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -26,11 +25,8 @@ public class AuthService extends BaseService {
         super(jdbcTemplate);
     }
 
-    @PostConstruct
-    void init() {
-        createSchema();
+    public synchronized void reloadFromDatabase() {
         loadFromDatabase();
-        seedIfNeeded();
     }
 
     /**
@@ -65,27 +61,6 @@ public class AuthService extends BaseService {
         return null;
     }
 
-    private void seedIfNeeded() {
-        // 开发阶段：每次启动都重置用户表，确保默认账号可用
-        jdbcTemplate.update("delete from users");
-        users.clear();
-        addUser("admin", "admin123", "系统管理员", "老板");
-        addUser("warehouse", "wh123", "仓管员", "仓管");
-        addUser("sales", "sales123", "销售员", "销售");
-    }
-
-    private void addUser(String username, String rawPassword, String displayName, String role) {
-        // 模拟前端 MD5 后再 sha256(username + md5)
-        String md5Password = md5(rawPassword);
-        String hash = hashPassword(username, md5Password);
-        UserRecord user = new UserRecord(username, hash, displayName, role);
-        users.put(username, user);
-        jdbcTemplate.update(
-                "insert into users (username, password_hash, display_name, role) values (?, ?, ?, ?)",
-                username, hash, displayName, role
-        );
-    }
-
     private String generateToken(UserRecord user) {
         String raw = user.username() + ":" + System.currentTimeMillis();
         return Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
@@ -109,43 +84,16 @@ public class AuthService extends BaseService {
         }
     }
 
-    private String md5(String input) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (byte b : hash) {
-                sb.append(String.format("%02x", b));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    private void createSchema() {
-        jdbcTemplate.execute("""
-                create table if not exists users (
-                    username text primary key,
-                    password_hash text not null,
-                    display_name text not null,
-                    role text not null
-                )
-                """);
-    }
-
     private void loadFromDatabase() {
         users.clear();
         jdbcTemplate.query("select username, password_hash, display_name, role from users order by username", (java.sql.ResultSet rs) -> {
-            while (rs.next()) {
-                UserRecord user = new UserRecord(
-                        rs.getString("username"),
-                        rs.getString("password_hash"),
-                        rs.getString("display_name"),
-                        rs.getString("role")
-                );
-                users.put(user.username(), user);
-            }
+            UserRecord user = new UserRecord(
+                    rs.getString("username"),
+                    rs.getString("password_hash"),
+                    rs.getString("display_name"),
+                    rs.getString("role")
+            );
+            users.put(user.username(), user);
         });
     }
 

@@ -5,7 +5,6 @@ import com.factory.erp.common.exception.BusinessException;
 import com.factory.erp.common.exception.NotFoundException;
 import com.factory.erp.product.ProductController.ProductRequest;
 import com.factory.erp.product.ProductController.ProductSummary;
-import jakarta.annotation.PostConstruct;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,9 +24,7 @@ public class ProductService extends BaseService {
         super(jdbcTemplate);
     }
 
-    @PostConstruct
-    void init() {
-        createSchema();
+    public synchronized void reloadFromDatabase() {
         loadFromDatabase();
     }
 
@@ -108,23 +105,6 @@ public class ProductService extends BaseService {
         return products.isEmpty();
     }
 
-    public synchronized void addSeedProduct(String code, String barcode, String name, String category, String unit, int safetyStock) {
-        if (products.containsKey(code)) {
-            return;
-        }
-        try {
-            Integer count = jdbcTemplate.queryForObject("select count(*) from products where code = ?", Integer.class, code);
-            if (count != null && count > 0) {
-                return;
-            }
-        } catch (Exception ignored) {
-        }
-        String createdAt = now();
-        ProductRecord product = new ProductRecord(code, barcode, name, category, unit, safetyStock, createdAt, null);
-        products.put(code, product);
-        insertProduct(product);
-    }
-
     private ProductRecord findByBarcodeInternal(String barcode) {
         return products.values().stream()
                 .filter(p -> p.barcode().equals(barcode))
@@ -132,43 +112,20 @@ public class ProductService extends BaseService {
                 .orElse(null);
     }
 
-    private void createSchema() {
-        jdbcTemplate.execute("""
-                create table if not exists products (
-                    code text primary key,
-                    barcode text not null,
-                    name text not null,
-                    category text,
-                    unit text,
-                    safety_stock integer not null,
-                    created_at text not null,
-                    image_url text
-                )
-                """);
-        // Add image_url column for existing databases
-        try {
-            jdbcTemplate.execute("alter table products add column image_url text");
-        } catch (Exception ignored) {
-            // Column already exists
-        }
-    }
-
     private void loadFromDatabase() {
         products.clear();
         jdbcTemplate.query("select code, barcode, name, category, unit, safety_stock, created_at, image_url from products order by code", (java.sql.ResultSet rs) -> {
-            while (rs.next()) {
-                ProductRecord product = new ProductRecord(
-                        rs.getString("code"),
-                        rs.getString("barcode"),
-                        rs.getString("name"),
-                        rs.getString("category"),
-                        rs.getString("unit"),
-                        rs.getInt("safety_stock"),
-                        rs.getString("created_at"),
-                        rs.getString("image_url")
-                );
-                products.put(product.code(), product);
-            }
+            ProductRecord product = new ProductRecord(
+                    rs.getString("code"),
+                    rs.getString("barcode"),
+                    rs.getString("name"),
+                    rs.getString("category"),
+                    rs.getString("unit"),
+                    rs.getInt("safety_stock"),
+                    rs.getString("created_at"),
+                    rs.getString("image_url")
+            );
+            products.put(product.code(), product);
         });
     }
 
